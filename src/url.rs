@@ -8,14 +8,9 @@ pub struct StompUrl(Url);
 
 /// An error which can be returned by [`StompUrl::new`].
 ///
-/// # Possible causes TODO
+/// # Examples
 ///
-/// The `StompUrlError` will be returned when the URL uses a scheme other than `wss`,
-/// has a fragment (e.g. `wss://example.com/#fragment`) or due to syntax errors in the URL itself.
-///
-/// # Example
-///
-/// ```
+/// ```rust
 /// use leptos_stomp::{StompUrl, StompUrlError};
 ///
 /// let parse_err = StompUrl::new("foobar"); // missing URL base
@@ -31,32 +26,29 @@ pub struct StompUrl(Url);
 pub enum StompUrlError {
     #[error("invalid URL: {0}")]
     InvalidUrl(#[from] ParseError),
-
     #[error("URL must use the WSS scheme")]
     InvalidScheme,
-
     #[error("URL cannot contain a fragment")]
     HasFragment,
 }
 
 impl StompUrl {
-    ///
-    ///
-    /// # Arguments
-    ///
-    /// * `url`:
-    ///
-    /// returns: Result<StompUrl, StompUrlError>
+    /// Parse a secure WebSocket URL from a string.
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
     /// use leptos_stomp::StompUrl;
+    ///
     /// let result = StompUrl::new("wss://example.com").unwrap();
     /// assert_eq!(result.to_string(), "wss://example.com/");
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// The [`StompUrlError`] will be returned when the URL uses a scheme other than `wss`,
+    /// has a fragment (e.g. `wss://example.com/#fragment`) or due to syntax errors in the URL itself.
     pub fn new(url: impl AsRef<str>) -> Result<Self, StompUrlError> {
-        // TODO: add docs
         let url = Url::parse(url.as_ref())?;
         if url.scheme() != "wss" {
             Err(StompUrlError::InvalidScheme)
