@@ -1,0 +1,12 @@
+[package]
+name = "leptos_stomp"
+version = "0.6.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+rust-version = "1.76"
+
+[dependencies]
+nom = "8.0"
+thiserror = "2.0"
+url = "2.5"
