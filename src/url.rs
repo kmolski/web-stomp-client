@@ -1,4 +1,5 @@
 use std::fmt;
+
 use thiserror::Error;
 use url::{ParseError, Url};
 
@@ -47,7 +48,9 @@ impl StompUrl {
     /// # Errors
     ///
     /// The [`StompUrlError`] will be returned when the URL uses a scheme other than `wss`,
-    /// has a fragment (e.g. `wss://example.com/#fragment`) or due to syntax errors in the URL itself.
+    /// has a fragment (`wss://example.com/#fragment` is not a valid WebSocket address, see
+    /// [MDN](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket/WebSocket#exceptions))
+    /// or due to syntax errors in the URL itself.
     pub fn new(url: impl AsRef<str>) -> Result<Self, StompUrlError> {
         let url = Url::parse(url.as_ref())?;
         if url.scheme() != "wss" {
