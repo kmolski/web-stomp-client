@@ -8,7 +8,7 @@ use nom::multi::many0;
 use nom::sequence::{separated_pair, terminated};
 use nom::{AsChar, Finish, IResult, Parser};
 
-use crate::frame::{StompCommand, StompFrame, StompFrameError};
+use crate::frame::{unescape_header, StompCommand, StompFrame, StompFrameError};
 
 macro_rules! stomp_command_parse_impl {
     ($typename: ident, $($command:ident),+) => {
@@ -43,44 +43,47 @@ fn parse_header(input: &[u8]) -> IResult<&[u8], (&[u8], &[u8])> {
     .parse(input)
 }
 
+type StompHeaders = HashMap<String, String>;
+
 fn collect_headers(
+    cmd: StompCommand,
     header_pairs: Vec<(&[u8], &[u8])>,
-) -> Result<HashMap<String, String>, StompFrameError> {
+) -> Result<StompHeaders, StompFrameError> {
     let mut headers = HashMap::with_capacity(header_pairs.len());
+    let unescape = if matches!(cmd, StompCommand::CONNECT | StompCommand::CONNECTED) {
+        |s| Ok(s)
+    } else {
+        unescape_header
+    };
     for pair in header_pairs {
-        // TODO: escape sequences
-        let key = from_utf8(pair.0)?.to_string();
-        let value = from_utf8(pair.1)?.to_string();
+        let key = unescape(from_utf8(pair.0)?.to_string())?;
+        let value = unescape(from_utf8(pair.1)?.to_string())?;
         headers.entry(key).or_insert(value);
     }
     Ok(headers)
 }
 
 const CONTENT_LENGTH: &str = "content-length";
+const DESTINATION: &str = "destination";
+const RECEIPT: &str = "receipt";
 
 fn parse_body_with_len(input: &[u8], body_len: usize) -> IResult<&[u8], &[u8]> {
     terminated(take(body_len), (ch('\0'), many0(line_ending))).parse(input)
 }
 
 fn parse_body(input: &[u8]) -> IResult<&[u8], &[u8]> {
-    terminated(
-        terminated(take_while(|c| c != b'\0'), ch('\0')),
-        many0(line_ending),
-    )
-    .parse(input)
+    terminated(take_while(|c| c != b'\0'), (ch('\0'), many0(line_ending))).parse(input)
 }
 
-fn parse_frame(
-    input: &[u8],
-) -> Result<(&[u8], (StompCommand, HashMap<String, String>, &[u8])), StompFrameError> {
-    let (rest, (command, header_pairs)) = (
+fn parse_frame(input: &[u8]) -> Result<(StompCommand, StompHeaders, &[u8]), StompFrameError> {
+    let (rest, (cmd, header_pairs)) = (
         terminated(StompCommand::parse, line_ending),
         terminated(many0(parse_header), line_ending),
     )
         .parse(input)
         .finish()?;
-    let headers = collect_headers(header_pairs)?;
-    let (rest, body) = if let Some(content_len) = headers.get(CONTENT_LENGTH) {
+    let headers = collect_headers(cmd, header_pairs)?;
+    let (_, body) = if let Some(content_len) = headers.get(CONTENT_LENGTH) {
         let body_len = content_len
             .parse::<usize>()
             .map_err(|e| StompFrameError::HeaderError(CONTENT_LENGTH.into(), e.to_string()))?;
@@ -88,17 +91,14 @@ fn parse_frame(
     } else {
         parse_body(rest).finish()?
     };
-    Ok((rest, (command, headers, body)))
+    Ok((cmd, headers, body))
 }
 
 impl TryFrom<&[u8]> for StompFrame {
     type Error = StompFrameError;
 
     fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
-        match parse_frame(input) {
-            Ok((_, (command, headers, body))) => StompFrame::new(command, headers, body),
-            Err(e) => Err(e),
-        }
+        parse_frame(input).and_then(|(cmd, headers, body)| StompFrame::new(cmd, headers, body))
     }
 }
 
