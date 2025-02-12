@@ -8,7 +8,9 @@ use nom::multi::many0;
 use nom::sequence::{separated_pair, terminated};
 use nom::{AsChar, Finish, IResult, Parser};
 
-use crate::frame::{unescape_header, StompCommand, StompFrame, StompFrameError};
+use crate::frame::{
+    unescape_header, StompCommand, StompFrame, StompFrameError, CONTENT_LENGTH, HEADER_SEP,
+};
 
 macro_rules! stomp_command_parse_impl {
     ($typename: ident, $($command:ident),+) => {
@@ -25,10 +27,36 @@ macro_rules! stomp_command_parse_impl {
 
 pub(super) use stomp_command_parse_impl;
 
-const HEADER_SEP: u8 = b':';
+impl TryFrom<&[u8]> for StompFrame {
+    type Error = StompFrameError;
 
-fn is_header_octet(oct: u8) -> bool {
-    !matches!(oct, b'\r' | b'\n' | HEADER_SEP)
+    fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
+        parse_frame(input).and_then(|(cmd, headers, body)| StompFrame::new(cmd, headers, body))
+    }
+}
+
+type StompHeaders = HashMap<String, String>;
+
+fn parse_frame(input: &[u8]) -> Result<(StompCommand, StompHeaders, &[u8]), StompFrameError> {
+    let (rest, (cmd, header_pairs)) = (
+        terminated(StompCommand::parse, line_ending),
+        terminated(many0(parse_header), line_ending),
+    )
+        .parse(input)
+        .finish()?;
+    let headers = collect_headers(cmd, header_pairs)?;
+    let (_, body) = if let Some(content_len) = headers.get(CONTENT_LENGTH) {
+        let Ok(body_len) = content_len.parse::<usize>() else {
+            return Err(StompFrameError::HeaderError(
+                CONTENT_LENGTH.into(),
+                content_len.clone(),
+            ));
+        };
+        parse_body_with_len(rest, body_len).finish()?
+    } else {
+        parse_body(rest).finish()?
+    };
+    Ok((cmd, headers, body))
 }
 
 fn parse_header(input: &[u8]) -> IResult<&[u8], (&[u8], &[u8])> {
@@ -43,7 +71,9 @@ fn parse_header(input: &[u8]) -> IResult<&[u8], (&[u8], &[u8])> {
     .parse(input)
 }
 
-type StompHeaders = HashMap<String, String>;
+fn is_header_octet(oct: u8) -> bool {
+    !matches!(oct, b'\r' | b'\n' | HEADER_SEP)
+}
 
 fn collect_headers(
     cmd: StompCommand,
@@ -63,10 +93,6 @@ fn collect_headers(
     Ok(headers)
 }
 
-const CONTENT_LENGTH: &str = "content-length";
-const DESTINATION: &str = "destination";
-const RECEIPT: &str = "receipt";
-
 fn parse_body_with_len(input: &[u8], body_len: usize) -> IResult<&[u8], &[u8]> {
     terminated(take(body_len), (ch('\0'), many0(line_ending))).parse(input)
 }
@@ -75,35 +101,131 @@ fn parse_body(input: &[u8]) -> IResult<&[u8], &[u8]> {
     terminated(take_while(|c| c != b'\0'), (ch('\0'), many0(line_ending))).parse(input)
 }
 
-fn parse_frame(input: &[u8]) -> Result<(StompCommand, StompHeaders, &[u8]), StompFrameError> {
-    let (rest, (cmd, header_pairs)) = (
-        terminated(StompCommand::parse, line_ending),
-        terminated(many0(parse_header), line_ending),
-    )
-        .parse(input)
-        .finish()?;
-    let headers = collect_headers(cmd, header_pairs)?;
-    let (_, body) = if let Some(content_len) = headers.get(CONTENT_LENGTH) {
-        let body_len = content_len
-            .parse::<usize>()
-            .map_err(|e| StompFrameError::HeaderError(CONTENT_LENGTH.into(), e.to_string()))?;
-        parse_body_with_len(rest, body_len).finish()?
-    } else {
-        parse_body(rest).finish()?
-    };
-    Ok((cmd, headers, body))
-}
-
-impl TryFrom<&[u8]> for StompFrame {
-    type Error = StompFrameError;
-
-    fn try_from(input: &[u8]) -> Result<Self, Self::Error> {
-        parse_frame(input).and_then(|(cmd, headers, body)| StompFrame::new(cmd, headers, body))
-    }
-}
-
 impl From<Error<&[u8]>> for StompFrameError {
     fn from(value: Error<&[u8]>) -> Self {
         StompFrameError::SyntaxError(String::from_utf8_lossy(value.input).to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_unknown_command_returns_error() {
+        let frame = b"nonsense\r\n\r\n\0";
+        let result = StompFrame::try_from(&frame[..]);
+        assert!(matches!(result, Err(StompFrameError::SyntaxError(..))));
+    }
+
+    #[test]
+    fn from_cr_lf_swapped_returns_error() {
+        let frame = b"CONNECT\n\r\r\n\0";
+        let result = StompFrame::try_from(&frame[..]);
+        assert!(matches!(result, Err(StompFrameError::SyntaxError(..))));
+    }
+
+    #[test]
+    fn from_non_utf8_headers_returns_error() {
+        let frame = b"SEND\n\
+                      header1:val\xc3\x28e1\n\
+                      \n\
+                      body\0";
+        let result = StompFrame::try_from(&frame[..]);
+        assert!(matches!(result, Err(StompFrameError::EncodingError(..))));
+    }
+
+    #[test]
+    fn from_missing_null_terminator_returns_error() {
+        let frame = b"CONNECT\r\n\r\n";
+        let result = StompFrame::try_from(&frame[..]);
+        assert!(matches!(result, Err(StompFrameError::SyntaxError(..))));
+    }
+
+    #[test]
+    fn from_content_len_overrun_returns_error() {
+        let frame = b"SEND\n\
+                      content-length:5\n\
+                      \n\
+                      body\0\n";
+        let result = StompFrame::try_from(&frame[..]);
+        assert!(matches!(result, Err(StompFrameError::SyntaxError(..))));
+    }
+
+    #[test]
+    fn from_invalid_escape_returns_error() {
+        let frame = b"SEND\n\
+                      header1:abc\\tdef\n\
+                      \n\0";
+        let result = StompFrame::try_from(&frame[..]);
+        assert!(matches!(result, Err(StompFrameError::SyntaxError(..))));
+    }
+
+    #[test]
+    fn from_ack_with_body_returns_error() {
+        let frame = b"ACK\n\nbody\0\n\n";
+        let result = StompFrame::try_from(&frame[..]);
+        assert!(matches!(result, Err(StompFrameError::SyntaxError(..))));
+    }
+
+    #[test]
+    fn from_send_frame_returns_ok() {
+        let frame = b"SEND\n\nbody\0\n\n";
+        let result = StompFrame::try_from(&frame[..]).unwrap();
+        assert_eq!(result.cmd, StompCommand::SEND);
+        assert!(result.headers.is_empty());
+        assert_eq!(result.body, Some(b"body".to_vec()));
+    }
+
+    #[test]
+    fn from_connected_frame_returns_ok() {
+        let frame = b"CONNECTED\n\
+                      header1:  a\\\\b\\r\\n\\c   \n\
+                      \n\0";
+        let result = StompFrame::try_from(&frame[..]).unwrap();
+        assert_eq!(result.cmd, StompCommand::CONNECTED);
+        assert_eq!(
+            result.headers,
+            HashMap::from([("header1".to_string(), "  a\\\\b\\r\\n\\c   ".to_string())])
+        );
+        assert!(result.body.is_none());
+    }
+
+    #[test]
+    fn from_error_frame_returns_ok() {
+        let frame = b"ERROR\n\
+                      header1:foobar\n\
+                      header1:oldvalue1\n\
+                      header1:oldvalue2\n\
+                      \n\
+                      body123\0";
+        let result = StompFrame::try_from(&frame[..]).unwrap();
+        assert_eq!(result.cmd, StompCommand::ERROR);
+        assert_eq!(
+            result.headers,
+            HashMap::from([("header1".to_string(), "foobar".to_string())])
+        );
+        assert_eq!(result.body, Some(b"body123".to_vec()));
+    }
+
+    #[test]
+    fn from_message_frame_returns_ok() {
+        let frame = b"MESSAGE\n\
+                      content-length:9\r\n\
+                      header1:a\\\\r\\r\\n\\c\n\
+                      \n\
+                      body123\0\0\0\n\
+                      \n\
+                      \n";
+        let result = StompFrame::try_from(&frame[..]).unwrap();
+        assert_eq!(result.cmd, StompCommand::MESSAGE);
+        assert_eq!(
+            result.headers,
+            HashMap::from([
+                ("content-length".to_string(), "9".to_string()),
+                ("header1".to_string(), "a\\r\r\n:".to_string())
+            ])
+        );
+        assert_eq!(result.body, Some(b"body123\0\0".to_vec()));
     }
 }
