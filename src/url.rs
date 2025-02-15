@@ -4,7 +4,7 @@ use thiserror::Error;
 use url::{ParseError, Url};
 
 /// URL for a secure STOMP-over-WebSocket connection.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StompUrl {
     url: Url,
 }
