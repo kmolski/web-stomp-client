@@ -5,7 +5,9 @@ use url::{ParseError, Url};
 
 /// URL for a secure STOMP-over-WebSocket connection.
 #[derive(Debug, Eq, PartialEq)]
-pub struct StompUrl(Url);
+pub struct StompUrl {
+    url: Url,
+}
 
 impl StompUrl {
     /// Parse a secure WebSocket URL from a string.
@@ -33,7 +35,7 @@ impl StompUrl {
         } else if url.fragment().is_some() {
             Err(StompUrlError::HasFragment)
         } else {
-            Ok(Self(url))
+            Ok(Self { url })
         }
     }
 }
@@ -67,6 +69,6 @@ pub enum StompUrlError {
 impl fmt::Display for StompUrl {
     #[inline]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.0, formatter)
+        fmt::Display::fmt(&self.url, formatter)
     }
 }
