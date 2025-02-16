@@ -153,7 +153,7 @@ fn unescape_header(header: String) -> Result<String, StompFrameError> {
             ['\\', 'n', rest @ ..] => ('\n', rest),
             ['\\', 'c', rest @ ..] => (':', rest),
             ['\\', '\\', rest @ ..] => ('\\', rest),
-            ['\\', _, ..] => return Err(StompFrameError::SyntaxError(header)),
+            ['\\', ..] => return Err(StompFrameError::SyntaxError(header)),
             [ch, rest @ ..] => (*ch, rest),
             [] => break,
         };

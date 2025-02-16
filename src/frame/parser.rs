@@ -162,6 +162,15 @@ mod tests {
     }
 
     #[test]
+    fn from_incomplete_escape_returns_error() {
+        let frame = b"SEND\n\
+                      header1:abc\\\n\
+                      \n\0";
+        let result = StompFrame::try_from(&frame[..]);
+        assert!(matches!(result, Err(StompFrameError::SyntaxError(..))));
+    }
+
+    #[test]
     fn from_ack_with_body_returns_error() {
         let frame = b"ACK\n\nbody\0\n\n";
         let result = StompFrame::try_from(&frame[..]);
