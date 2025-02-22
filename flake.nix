@@ -19,6 +19,7 @@
           devShells.default = with pkgs; mkShell {
             buildInputs = [
               rustToolchain
+              trunk
             ];
           };
         }
