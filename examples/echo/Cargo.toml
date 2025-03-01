@@ -1,0 +1,15 @@
+[package]
+name = "echo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+console_log = "1.0"
+console_error_panic_hook = "0.1"
+leptos = { version = "0.6", features = ["csr"] }
+leptos_router = { version = "0.6", features = ["csr"] }
+leptos_stomp = { path = "../.." }
+log = "0.4"
+
+codee = "0.2"
+leptos-use = "0.13"
