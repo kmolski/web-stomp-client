@@ -80,14 +80,9 @@ fn collect_headers(
     header_pairs: Vec<(&[u8], &[u8])>,
 ) -> Result<StompHeaders, StompFrameError> {
     let mut headers = HashMap::with_capacity(header_pairs.len());
-    let unescape = if cmd.has_escaped_headers() {
-        unescape_header
-    } else {
-        |s| Ok(s)
-    };
     for pair in header_pairs {
-        let key = unescape(from_utf8(pair.0)?.to_string())?;
-        let value = unescape(from_utf8(pair.1)?.to_string())?;
+        let key = unescape_header(from_utf8(pair.0)?.to_string(), cmd)?;
+        let value = unescape_header(from_utf8(pair.1)?.to_string(), cmd)?;
         headers.entry(key).or_insert(value);
     }
     Ok(headers)

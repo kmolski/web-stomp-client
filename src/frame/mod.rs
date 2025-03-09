@@ -1,7 +1,6 @@
 mod parser;
 
 use std::collections::HashMap;
-use std::convert::identity;
 use std::str::Utf8Error;
 
 use thiserror::Error;
@@ -102,64 +101,67 @@ impl StompFrame {
     }
 }
 
-impl From<StompFrame> for Vec<u8> {
-    fn from(value: StompFrame) -> Self {
+impl From<&StompFrame> for Vec<u8> {
+    fn from(frame: &StompFrame) -> Self {
         let mut serialized = Vec::new();
-        let escape = if value.cmd.has_escaped_headers() {
-            escape_header
-        } else {
-            identity
-        };
-        let cmd: &str = value.cmd.into();
+        let cmd: &str = frame.cmd.into();
         serialized.extend_from_slice(cmd.as_bytes());
         serialized.push(b'\n');
-        for (key, value) in value.headers {
-            serialized.extend_from_slice(escape(key).as_bytes());
+        for (key, value) in &frame.headers {
+            serialized.extend_from_slice(escape_header(key, frame.cmd).as_bytes());
             serialized.push(HEADER_SEP);
-            serialized.extend_from_slice(escape(value).as_bytes());
+            serialized.extend_from_slice(escape_header(value, frame.cmd).as_bytes());
             serialized.push(b'\n');
         }
         serialized.push(b'\n');
-        if let Some(body) = value.body {
-            serialized.extend_from_slice(&body);
+        if let Some(body) = &frame.body {
+            serialized.extend_from_slice(body);
         }
         serialized.push(b'\0');
         serialized
     }
 }
 
-fn escape_header(header: String) -> String {
-    let mut escaped = String::new();
-    for ch in header.chars() {
-        match ch {
-            '\r' => escaped.push_str("\\r"),
-            '\n' => escaped.push_str("\\n"),
-            ':' => escaped.push_str("\\c"),
-            '\\' => escaped.push_str("\\\\"),
-            ch => escaped.push(ch),
+fn escape_header(header: &str, cmd: StompCommand) -> String {
+    if cmd.has_escaped_headers() {
+        let mut escaped = String::new();
+        for ch in header.chars() {
+            match ch {
+                '\\' => escaped.push_str("\\\\"),
+                '\r' => escaped.push_str("\\r"),
+                '\n' => escaped.push_str("\\n"),
+                ':' => escaped.push_str("\\c"),
+                ch => escaped.push(ch),
+            }
         }
+        escaped
+    } else {
+        header.to_string()
     }
-    escaped
 }
 
-fn unescape_header(header: String) -> Result<String, StompFrameError> {
-    let chars = header.chars().collect::<Vec<_>>();
-    let mut new_char;
-    let mut ch_view = chars.as_slice();
-    let mut unescaped = String::new();
-    loop {
-        (new_char, ch_view) = match ch_view {
-            ['\\', 'r', rest @ ..] => ('\r', rest),
-            ['\\', 'n', rest @ ..] => ('\n', rest),
-            ['\\', 'c', rest @ ..] => (':', rest),
-            ['\\', '\\', rest @ ..] => ('\\', rest),
-            ['\\', ..] => return Err(StompFrameError::SyntaxError(header)),
-            [ch, rest @ ..] => (*ch, rest),
-            [] => break,
-        };
-        unescaped.push(new_char)
+fn unescape_header(header: String, cmd: StompCommand) -> Result<String, StompFrameError> {
+    if cmd.has_escaped_headers() {
+        let chars = header.chars().collect::<Vec<_>>();
+        let mut new_char;
+        let mut ch_view = chars.as_slice();
+        let mut unescaped = String::new();
+        loop {
+            (new_char, ch_view) = match ch_view {
+                ['\\', '\\', rest @ ..] => ('\\', rest),
+                ['\\', 'r', rest @ ..] => ('\r', rest),
+                ['\\', 'n', rest @ ..] => ('\n', rest),
+                ['\\', 'c', rest @ ..] => (':', rest),
+                ['\\', ..] => return Err(StompFrameError::SyntaxError(header)),
+                [ch, rest @ ..] => (*ch, rest),
+                [] => break,
+            };
+            unescaped.push(new_char)
+        }
+        Ok(unescaped)
+    } else {
+        Ok(header)
     }
-    Ok(unescaped)
 }
 
 const HEADER_SEP: u8 = b':';
@@ -172,7 +174,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn from_into_preserves_frame_content() {
+    fn from_send_frame_into_preserves_content() {
         let frame = StompFrame::new(
             StompCommand::SEND,
             HashMap::from([("header1".to_string(), "a\\\\r\r\n:".to_string())]),
