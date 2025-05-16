@@ -181,7 +181,20 @@ mod tests {
             b"body",
         )
         .unwrap();
-        let serialized: Vec<u8> = frame.clone().into();
+        let serialized: Vec<u8> = (&frame).into();
+        let deserialized = StompFrame::try_from(serialized.as_slice()).unwrap();
+        assert_eq!(frame, deserialized);
+    }
+
+    #[test]
+    fn from_connected_frame_into_preserves_content() {
+        let frame = StompFrame::new(
+            StompCommand::CONNECTED,
+            HashMap::from([("header1".to_string(), "  ab\\r\\n\\c\\\\".to_string())]),
+            b"",
+        )
+        .unwrap();
+        let serialized: Vec<u8> = (&frame).into();
         let deserialized = StompFrame::try_from(serialized.as_slice()).unwrap();
         assert_eq!(frame, deserialized);
     }
