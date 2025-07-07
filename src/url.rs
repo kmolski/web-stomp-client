@@ -15,7 +15,7 @@ impl StompUrl {
     /// # Examples
     ///
     /// ```rust
-    /// use leptos_stomp::StompUrl;
+    /// use web_stomp_client::StompUrl;
     ///
     /// let result = StompUrl::new("wss://example.com").unwrap();
     /// assert_eq!(result.to_string(), "wss://example.com/");
@@ -45,7 +45,7 @@ impl StompUrl {
 /// # Examples
 ///
 /// ```rust
-/// use leptos_stomp::{StompUrl, StompUrlError};
+/// use web_stomp_client::{StompUrl, StompUrlError};
 ///
 /// let scheme_err = StompUrl::new("http://example.com"); // URL doesn't use the WSS scheme
 /// assert_eq!(scheme_err, Err(StompUrlError::InvalidScheme));
