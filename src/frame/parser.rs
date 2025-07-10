@@ -8,9 +8,7 @@ use nom::multi::many0;
 use nom::sequence::{separated_pair, terminated};
 use nom::{AsChar, Finish, IResult, Parser};
 
-use crate::frame::{
-    unescape_header, StompCommand, StompFrame, StompFrameError, CONTENT_LENGTH, HEADER_SEP,
-};
+use crate::frame::{StompCommand, StompFrame, StompFrameError, CONTENT_LENGTH, HEADER_SEP};
 
 macro_rules! stomp_command_parse_impl {
     ($typename: ident, $($command:ident),+) => {
@@ -86,6 +84,30 @@ fn collect_headers(
         headers.entry(key).or_insert(value);
     }
     Ok(headers)
+}
+
+fn unescape_header(header: String, cmd: StompCommand) -> Result<String, StompFrameError> {
+    if cmd.has_escaped_headers() {
+        let chars = header.chars().collect::<Vec<_>>();
+        let mut new_char;
+        let mut ch_view = chars.as_slice();
+        let mut unescaped = String::new();
+        loop {
+            (new_char, ch_view) = match ch_view {
+                ['\\', '\\', rest @ ..] => ('\\', rest),
+                ['\\', 'r', rest @ ..] => ('\r', rest),
+                ['\\', 'n', rest @ ..] => ('\n', rest),
+                ['\\', 'c', rest @ ..] => (':', rest),
+                ['\\', ..] => return Err(StompFrameError::SyntaxError(header)),
+                [ch, rest @ ..] => (*ch, rest),
+                [] => break,
+            };
+            unescaped.push(new_char)
+        }
+        Ok(unescaped)
+    } else {
+        Ok(header)
+    }
 }
 
 fn parse_body_with_len(input: &[u8], body_len: usize) -> IResult<&[u8], &[u8]> {

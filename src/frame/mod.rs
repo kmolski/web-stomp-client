@@ -140,30 +140,6 @@ fn escape_header(header: &str, cmd: StompCommand) -> String {
     }
 }
 
-fn unescape_header(header: String, cmd: StompCommand) -> Result<String, StompFrameError> {
-    if cmd.has_escaped_headers() {
-        let chars = header.chars().collect::<Vec<_>>();
-        let mut new_char;
-        let mut ch_view = chars.as_slice();
-        let mut unescaped = String::new();
-        loop {
-            (new_char, ch_view) = match ch_view {
-                ['\\', '\\', rest @ ..] => ('\\', rest),
-                ['\\', 'r', rest @ ..] => ('\r', rest),
-                ['\\', 'n', rest @ ..] => ('\n', rest),
-                ['\\', 'c', rest @ ..] => (':', rest),
-                ['\\', ..] => return Err(StompFrameError::SyntaxError(header)),
-                [ch, rest @ ..] => (*ch, rest),
-                [] => break,
-            };
-            unescaped.push(new_char)
-        }
-        Ok(unescaped)
-    } else {
-        Ok(header)
-    }
-}
-
 const HEADER_SEP: u8 = b':';
 const CONTENT_LENGTH: &str = "content-length";
 const DESTINATION: &str = "destination";
