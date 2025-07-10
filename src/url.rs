@@ -1,3 +1,6 @@
+// Copyright (C) 2025  Krzysztof Molski
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use std::fmt;
 
 use thiserror::Error;
